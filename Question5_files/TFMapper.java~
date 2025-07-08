@@ -1,0 +1,55 @@
+import org.apache.hadoop.io.*;
+import org.apache.hadoop.mapreduce.Mapper;
+import java.net.URI;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+
+import java.io.*;
+import java.util.*;
+
+public class TFMapper extends Mapper<LongWritable, Text, Text, Text> {
+    private HashSet<String> topTerms = new HashSet<>();
+    private HashMap<String, Integer> dfMap = new HashMap<>(); 
+
+    @Override
+    protected void setup(Context context) throws IOException, InterruptedException {
+        URI[] cacheFiles = context.getCacheFiles();
+        if (cacheFiles != null && cacheFiles.length > 0) {
+            Path dfFilePath = new Path(cacheFiles[0]); // Assuming first file is DF file
+            FileSystem fs = FileSystem.get(context.getConfiguration());
+            BufferedReader reader = new BufferedReader(new InputStreamReader(fs.open(dfFilePath)));
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] parts = line.split("\t");
+                if (parts.length == 2) {
+                    dfMap.put(parts[0], Integer.parseInt(parts[1]));
+                }
+            }
+            reader.close();
+        }
+    }
+
+    public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        String[] parts = value.toString().split("\t", 2);
+        if (parts.length < 2) return;
+
+        String docID = parts[0];
+        String content = parts[1].toLowerCase().replaceAll("[^a-zA-Z0-9]", " ");
+        StringTokenizer tokenizer = new StringTokenizer(content);
+
+        HashMap<String, Integer> termCounts = new HashMap<>();
+
+        while (tokenizer.hasMoreTokens()) {
+            String term = tokenizer.nextToken();
+            if (topTerms.contains(term)) {
+                termCounts.put(term, termCounts.getOrDefault(term, 0) + 1);
+            }
+        }
+
+        // Emit (docID, JSON-like term frequency stripe)
+        context.write(new Text(docID), new Text(termCounts.toString()));
+    }
+}
+
